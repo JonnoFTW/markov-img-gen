@@ -12,7 +12,7 @@ markov_img.mp4
 __pycache__/
 *.py[cod]
 *$py.class
-
+*.7z
 # C extensions
 *.so
 

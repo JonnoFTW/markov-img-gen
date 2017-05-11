@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 from PIL import Image
 import numpy as np
 import pyprind
@@ -8,10 +9,11 @@ from collections import defaultdict, Counter
 
 
 class MarkovChain(object):
-    def __init__(self, bucket_size=10, four_neighbour=True):
+    def __init__(self, bucket_size=10, four_neighbour=True, directional=False):
         self.weights = defaultdict(Counter)
         self.bucket_size = bucket_size
         self.four_neighbour = four_neighbour
+        self.directional = directional
 
     def normalize(self, pixel):
         return pixel // self.bucket_size
@@ -171,39 +173,64 @@ class MarkovChain(object):
 
 
 if __name__ == "__main__":
-    import sys
     import pickle
     import argparse
-    # import requests
-    # import cStringIO
+
+    try:
+        from urllib.parse import urlparse
+        from io import StringIO
+    except ImportError:
+        from urlparse import urlparse
+        from StringIO import StringIO
+
+    import requests
+
     ap = argparse.ArgumentParser()
-    ap.add_argument('-i', '--input', required=True, help='Image to learn from')
-    ap.add_argument('-b', '--buckets', type=int, default=16)
+    ap.add_argument('-i', '--input', required=True, help='Image to learn from. Can be a local file or url')
+    ap.add_argument('-b', '--buckets', type=int, default=16, help='Training bucket width')
+    ap.add_argument('-ow', '--width', type=int, default=512, help='Width of output image')
+    ap.add_argument('-oh', '--height', type=int, default=512, help='Height of output image')
+    ap.add_argument('-n', '--eight-neighbours', action='store_true', help='Train on all 8 neighbours, default is 4')
+    ap.add_argument('-d', '--directional', action='store_true',
+                    help='Train the image using the relative location of each neighbour')
+    ap.add_argument('-s', '--show-normalized', action='store_true',
+                    help='Show the normalized (just apply the bucketing) image only')
 
     args = vars(ap.parse_args())
+    print("Options are:")
+    for i,v in args.items():
+        print("\t{}: {}".format(i,v))
     fname = args['input']
     b_size = args['buckets']
+    # print(args)
+    chain = MarkovChain(bucket_size=b_size, four_neighbour=not args['eight_neighbours'],
+                        directional=args['directional'])
 
-    chain = MarkovChain(bucket_size=b_size, four_neighbour=True)
-
-    # fname = 'http://i.imgur.com/XS5Qj0X.jpg'
-    # im = Image.open(cStringIO.StringIO(requests.get(fname).content))
-    # fname = fname.split('/')[-1]
-    im = Image.open(fname)
-    im.show()
-    pkl_name = "{}_{}.pkl".format(fname, b_size)
+    if urlparse(fname).scheme:
+        print("{} is a url".format(fname))
+        im = Image.open(StringIO(requests.get(fname).content))
+        fname = fname.split('/')[-1]
+    else:
+        im = Image.open(fname)
+    # im.show()
+    if args['show_normalized']:
+        output = Image.fromarray((np.array(im) // b_size) * b_size)
+        output.show()
+        exit()
+    pkl_name = "{}_{}_{}_{}.pkl".format(fname, b_size, args['eight_neighbours'], args['directional'])
     if os.path.exists(pkl_name):
-        print("Loading existing chain: "+pkl_name)
+        print("Loading existing chain: " + pkl_name)
         with open(pkl_name, 'rb') as pkl:
             chain = pickle.load(pkl)
     else:
         print("Training " + fname)
         chain.train(im)
-        print("Saving model as: "+pkl_name)
+        print("Saving model as: " + pkl_name)
         with open(pkl_name, 'wb') as pkl:
             weights = pickle.dump(chain, pkl)
 
-    print("\nGenerating")
-    output = chain.generate(width=512, height=512)
-    output.save(fname[:-4]+'generated.png')
+    outname = fname[:-4] + '.generated.png'
+    print("\nGenerating {} (width={}, height={})".format(outname, args['width'], args['height']))
+    output = chain.generate(width=args['width'], height=args['height'])
+    output.save(outname)
     output.show()
