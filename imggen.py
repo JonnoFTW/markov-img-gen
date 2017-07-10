@@ -1,9 +1,10 @@
 #!/usr/bin/env python
-from PIL import Image
+from PIL import Image, ImageFilter
 import numpy as np
 import pyprind
 import random
 import os
+
 # import pygame
 from collections import defaultdict, Counter
 
@@ -172,13 +173,86 @@ class MarkovChain(object):
         return Image.fromarray(img_out)
 
 
+def convolve(img, fil, args=[]):
+    """
+    Take a PIL image, apply a convolution and return the resultant image
+    :param img: 
+    :param fil: 
+    :return: 
+    """
+    if hasattr(fil, '__call__'):
+        knl = fil(*args)
+    else:
+        if len(fil) == 25:
+            wh = (5, 5)
+        elif len(fil) == 9:
+            wh = (3, 3)
+        else:
+            exit("Convolution filter must be 3x3 or 5x5")
+            return
+        knl = ImageFilter.Kernel(wh, fil)
+    return im.filter(knl)
+
+
+def quantize(img, n_colors=32):
+    from sklearn.cluster import KMeans
+    from sklearn.metrics import pairwise_distances_argmin
+    from sklearn.utils import shuffle
+    npa = np.array(img, dtype=np.float64)[:, :, :3] / 255
+    w, h, d = original_shape = tuple(npa.shape)
+    image_array = np.reshape(npa, (w * h, d))
+    image_array_sample = shuffle(image_array, random_state=0)[:1000]
+    kmeans = KMeans(n_clusters=n_colors, random_state=0).fit(image_array_sample)
+
+    def recreate_image(codebook, labels, w, h):
+        """Recreate the (compressed) image from the code book & labels"""
+        d = codebook.shape[1]
+        image = np.zeros((w, h, d))
+        label_idx = 0
+        for i in range(w):
+            for j in range(h):
+                image[i][j] = codebook[labels[label_idx]]
+                label_idx += 1
+        return image
+
+    out = recreate_image(kmeans.cluster_centers_, labels=kmeans.predict(image_array), w=w, h=h)
+    return Image.fromarray((out.reshape(original_shape)*255).astype(np.uint8))
+
+
+kernels = {
+    'sharpen': np.array((
+        [0, -1, 0],
+        [-1, 5, -1],
+        [0, -1, 0]), dtype="int").flatten(),
+    'laplacian': np.array((
+        [0, 1, 0],
+        [1, -4, 1],
+        [0, 1, 0]), dtype="int").flatten(),
+
+    # construct the Sobel x-axis kernel
+    'sobelX': np.array((
+        [-1, 0, 1],
+        [-2, 0, 2],
+        [-1, 0, 1]), dtype="int").flatten(),
+
+    # construct the Sobel y-axis kernel
+    'sobelY': np.array((
+        [-1, -2, -1],
+        [0, 0, 0],
+        [1, 2, 1]), dtype="int").flatten(),
+    'smallBlur': (np.ones((3, 3), dtype="float") * (1.0 / (3 * 3))).flatten()
+}
+for i in dir(ImageFilter):
+    if i[0].isupper():
+        kernels[i] = getattr(ImageFilter, i)
+
 if __name__ == "__main__":
     import pickle
     import argparse
 
     try:
         from urllib.parse import urlparse
-        from io import StringIO
+        from io import BytesIO
     except ImportError:
         from urlparse import urlparse
         from StringIO import StringIO
@@ -195,11 +269,21 @@ if __name__ == "__main__":
                     help='Train the image using the relative location of each neighbour')
     ap.add_argument('-s', '--show-normalized', action='store_true',
                     help='Show the normalized (just apply the bucketing) image only')
+    ap.add_argument('-co', '--convolve', action='store_true', help='Apply a convolution')
+    ap.add_argument('-cv', '--convolve-val',
+                    type=lambda s: kernels[s] if s in kernels else [int(item) for item in s.split(',')],
+                    help='The values to use in the convolution filter. Pass 3x3 or 5x5 numbers separated by , or one of ' +
+                         ','.join(
+                             kernels.keys()) + '\nFilter arguments are detailed here: https://pillow.readthedocs.io/en/3.4.x/reference/ImageFilter.html',
+                    default='0,-1,0,-1,5,-1,0,-1,0')
+    ap.add_argument('-ca', '--convolve-args', type=lambda s: [int(it) for it in s.split(',')],
+                    help='If using an ImageFilter, comma separated string of args')
+    ap.add_argument('-q', '--quantize', action='store_true', help='Quantize the clusters')
 
     args = vars(ap.parse_args())
     print("Options are:")
-    for i,v in args.items():
-        print("\t{}: {}".format(i,v))
+    for i, v in args.items():
+        print("\t{}: {}".format(i, v))
     fname = args['input']
     b_size = args['buckets']
     # print(args)
@@ -208,17 +292,25 @@ if __name__ == "__main__":
 
     if urlparse(fname).scheme:
         print("{} is a url".format(fname))
-        im = Image.open(StringIO(requests.get(fname).content))
+        im = Image.open(BytesIO(requests.get(fname).content))
         fname = fname.split('/')[-1]
     else:
         im = Image.open(fname)
-    # im.show()
+    if args['quantize']:
+        im = quantize(im, n_colors=args['buckets'])
+    if args['convolve']:
+        convolve_args = []
+        if args['convolve_val'] in dir(ImageFilter) and 'convolve_args' in args:
+            convolve_args = args['convolve_args']
+
+        im = convolve(im, args['convolve_val'], convolve_args)
+    im.show('Before Training')
     if args['show_normalized']:
         output = Image.fromarray((np.array(im) // b_size) * b_size)
         output.show()
         exit()
     pkl_name = "{}_{}_{}_{}.pkl".format(fname, b_size, args['eight_neighbours'], args['directional'])
-    if os.path.exists(pkl_name):
+    if os.path.exists(pkl_name) and not args['convolve']:
         print("Loading existing chain: " + pkl_name)
         with open(pkl_name, 'rb') as pkl:
             chain = pickle.load(pkl)
@@ -233,4 +325,4 @@ if __name__ == "__main__":
     print("\nGenerating {} (width={}, height={})".format(outname, args['width'], args['height']))
     output = chain.generate(width=args['width'], height=args['height'])
     output.save(outname)
-    output.show()
+    output.show('Generated Image')

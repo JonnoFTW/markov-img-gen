@@ -17,7 +17,6 @@ fname = 'Night_And_Day.flac'
 fs, data, outname = readwav(fname)
 
 
-
 def show_pcm(d):
     x = np.arange(d.shape[0])
     plt.plot(x, d)
@@ -51,7 +50,7 @@ wavfile.write('sample.wav', fs, sample)
 # show_pcm(data)
 # show_fft(data)
 show_spectrogram(data)
-if input("cont: ").lower()=='n':
+if input("cont: ").lower() == 'n':
     exit()
 
 output_frames = fs * output_seconds
