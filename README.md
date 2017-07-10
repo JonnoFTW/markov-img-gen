@@ -3,6 +3,7 @@
 This is a small script that generates images from other images using a markov chain.
 
 ## Dependencies
+Install using `pip install -r requirements.txt`
 
 You will need:
 

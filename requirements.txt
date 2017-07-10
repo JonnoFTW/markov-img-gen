@@ -1,0 +1,8 @@
+numpy
+pillow
+requests
+scipy
+pyprind
+matplotlib
+sounddevice
+keras

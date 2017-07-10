@@ -9,7 +9,7 @@ from collections import defaultdict, Counter
 import pyprind
 import numpy as np
 import random
-from utils import readwav
+from .utils import readwav
 
 output_seconds = 5
 n_gram = 2

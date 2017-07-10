@@ -3,7 +3,7 @@ from keras.layers import Dense, LSTM
 from keras.callbacks import Callback
 import numpy as np
 import pyprind
-from utils import readwav, train_test_split
+from .utils import readwav, train_test_split
 import sounddevice as sd
 
 output_seconds = 5
