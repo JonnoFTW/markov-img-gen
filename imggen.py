@@ -167,7 +167,7 @@ class MarkovChain(object):
                     pass
                 except ValueError:
                     continue
-                if 0 <= neighbour[0] < width and 0 <= neighbour[1] < height:
+                if 0 <= neighbour[1] < width and 0 <= neighbour[0] < height:
                     stack.append(neighbour)
         # writer.release()
         return Image.fromarray(img_out)
